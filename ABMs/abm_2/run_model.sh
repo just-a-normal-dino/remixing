@@ -1,0 +1,3 @@
+python3 main_phase1_timeperagent.py tpera
+python3 main_phase2_voting.py phase2_on_repo
+python3 main_number_of_agents.py numagents

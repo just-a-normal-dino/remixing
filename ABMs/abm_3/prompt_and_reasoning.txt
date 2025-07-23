@@ -1,0 +1,566 @@
+# Prompt
+
+We will make a model.
+This model is based on a two stage process, and we will design both.
+
+In the first stage, a population of N agents creates designs from existing designs. They do this over a sequence of T steps. At each step, an agent can pick an existing design from a design pool and modify it slightly.
+
+In the second stage the population of agents votes on the designs. First, each agent gets M random samples of S designs from all the available designs, and votes on those designs. Finally, after the M rounds, the top K designs are voted on by all agents, and the final selected design is the most voted design.
+
+That was a high level description of the two stages. Now the task is to fill in the model.
+
+For the designs, we need a design space.
+
+Then, each agent has a utility function over this design space. This allows them to evaluate designs.
+
+The simulation starts with a few designs available in a design pool.
+
+For the first stage, each agent needs a few functions:
+- a selection function, to select one design from the design pool
+- an evolution function, to take the selected design and make an alteration to the design
+- a decision function, to decide whether the evolved design should be added to the pool
+
+In the first stage, we must also decide how many times T to repeat the process.
+
+For the second stage, agents are given a menu of designs on which they vote. We need to decide:
+- how many designs S are in a single menu
+- how many menus M each agent votes on
+
+For each of the specified functions, create a python function with parameters.
+Then, we want to deploy a population of size N, with heterogenous parameters, which can execute this two stage process.
+We want to simulate execution of this process for variable sizes of the population N.
+
+# Deep-Seek Reasoning
+
+Okay, let's tackle this problem. The user wants to create a model for a two-stage design process involving agents. The first stage is about creating designs through selection, evolution, and decision functions. The second stage is about voting to select the top designs. The goal is to implement this in Python with functions and parameters, then simulate it with varying population sizes.
+
+First, I need to define the design space. Since designs can be complex, maybe representing them as vectors of numerical values would work. Each design could be a list of floats, where each dimension represents a different feature. That way, modifications can be done by tweaking these values.
+
+Next, the utility functions for agents. Each agent should evaluate a design based on their preferences. Maybe each agent has a set of weights that they apply to the design's features. For example, a linear utility function where the utility is the dot product of the agent's weights and the design's vector. Alternatively, they could have ideal points in the design space, and utility decreases with distance from that point. I think using an ideal point with Gaussian decay might be more intuitive. So each agent has an ideal design, and the utility is calculated as the negative Euclidean distance squared from their ideal. Or maybe exponential decay, like using a Gaussian function. Let me think: utility = exp(-distance^2 / (2*sigma^2)). That way, higher utility means closer to the ideal. But the user didn't specify, so I need to choose something. Let's go with Gaussian for now, with each agent having their own ideal point and a sigma parameter controlling how sharply utility drops off.
+
+Now, the first stage functions. Each agent needs a selection function to pick a design from the pool. How do agents select designs? They might choose the design with the highest utility according to their own utility function. Alternatively, they might select a design probabilistically, with probabilities proportional to their utilities. Or maybe a softmax selection where higher utility designs are more likely to be chosen. Let's implement a selection function that uses softmax probabilities based on the utilities. That introduces some randomness but still biases towards better designs.
+
+Then, the evolution function. Taking a selected design and modifying it slightly. This could be adding Gaussian noise to each dimension, or mutating certain features. The evolution function could have parameters like mutation rate and mutation strength (standard deviation of the noise). So each agent might have different mutation parameters, leading to heterogeneous evolution strategies.
+
+The decision function determines whether the evolved design is added back to the pool. The agent might compare the utility of the evolved design to the original. If it's higher, they add it. Or they could use a probabilistic approach, like adding it with a probability based on the utility improvement. For example, if the new utility is higher than the original, add it; otherwise, maybe a small chance. Alternatively, the Metropolis-Hastings criterion: accept with probability min(1, exp((new_utility - old_utility)/T)), where T is a temperature parameter. But since the user didn't specify, perhaps a simple rule: if the new utility is higher than a threshold (maybe the agent's own threshold), add it. Or compare to the original and accept if better. Let's go with the agent adding the evolved design if its utility is higher than the original. That's straightforward.
+
+For the parameters in the first stage, T is the number of steps. So each agent goes through T iterations of select-evolve-decide.
+
+In the second stage, each agent gets M menus, each containing S designs. They vote on each menu. Then, after M rounds, the top K designs from all votes are selected for a final vote. The final design is the one with the most votes.
+
+So for the voting, when an agent is presented with a menu of S designs, they vote for the one with the highest utility in that menu. Each agent does this M times, each time with a random sample of S designs. Then, all the votes from all agents across all menus are tallied, the top K proceed to the final round where all agents vote again, and the winner is the most voted in the final round.
+
+Now, implementing this in Python. Need classes or structures for agents, the design pool, and the simulation steps.
+
+First, the Design class: perhaps just a list of attributes (the vector) and a unique identifier. Or maybe just represent designs as tuples or numpy arrays. But for tracking, maybe each design has an ID and the vector.
+
+But for simplicity, maybe represent designs as numpy arrays. The design pool can be a list of these arrays. However, when designs are added, we need to track their existence. So the pool is a list that grows as agents add new designs.
+
+Each agent has parameters for their utility function (ideal_point, sigma), selection function parameters (maybe temperature for softmax), evolution parameters (mutation_strength, mutation_rate), and decision function parameters (e.g., threshold).
+
+So, the agent's selection function: inputs are the design pool and the agent's utility function. The agent computes utilities for all designs, then selects one using softmax. The softmax temperature parameter controls exploration vs exploitation. Higher temperature makes selection more random, lower makes it more greedy.
+
+The evolution function: takes a design, applies mutation. For each element in the design vector, with probability mutation_rate, add Gaussian noise with standard deviation mutation_strength. So parameters are mutation_rate and mutation_strength. Alternatively, the evolution could be adding a small random vector scaled by mutation_strength. Maybe each agent has their own mutation parameters.
+
+The decision function: agent computes the utility of the evolved design and compares it to the original. If the new utility is higher, add to the pool. Otherwise, discard. So the decision is deterministic based on utility improvement.
+
+For the simulation steps:
+
+Initialize the design pool with some initial designs. Maybe random vectors or predefined ones.
+
+Then, for T steps:
+
+Each agent (in parallel?) selects a design, evolves it, decides to add it to the pool.
+
+Wait, but the problem says "a population of N agents creates designs from existing designs over T steps." At each step, an agent can pick and modify. So perhaps each step, each agent acts once. So total T steps, each step involves all agents acting once? Or each agent acts T times? The description says "over a sequence of T steps. At each step, an agent can pick..." So maybe each step, each agent performs one iteration. So for each of T steps, each agent selects, evolves, decides. So total N*T new designs attempted, but some may not be added.
+
+But that could be computationally intensive for large N and T. Alternatively, in each step, each agent has a chance to act. The problem isn't entirely clear, but the user said "At each step, an agent can pick an existing design from a design pool and modify it slightly." So perhaps each step, each agent does this once. So for T steps, each agent does T actions. So in each step, all agents perform an action.
+
+But maybe it's better to model each agent acting once per step. So for T steps, each agent has T opportunities to create a new design.
+
+So, code-wise, for each step in T:
+
+for each agent in N agents:
+
+select a design from the pool
+
+evolve it
+
+decide whether to add the evolved design to the pool
+
+So the design pool can grow over time. But initial pool starts with a few designs.
+
+Now, the parameters for the functions. Each agent has their own parameters. So agents are heterogeneous. For example, some agents may have higher mutation rates, others more focused on high-utility designs.
+
+So, when creating agents, we need to assign each their own parameters: ideal_point, sigma (for utility), selection temperature, mutation parameters, etc.
+
+Now, the voting stage:
+
+Each agent is given M random samples (menus) of S designs from all available. For each menu, the agent votes on the design they prefer (highest utility in that menu). After M rounds, collect all votes. The top K designs with the most votes across all menus are selected for the final vote. Then, all agents vote on these K designs, and the most voted is the winner.
+
+So, during the voting stage:
+
+1. Collect all designs from the pool.
+
+2. For each agent:
+
+For M times:
+
+Randomly sample S designs from the pool (without replacement in the menu? Or can a design appear multiple times in different menus?)
+
+The agent votes for the design in the menu with highest utility.
+
+3. Tally all votes from all menus. Select the top K designs.
+
+4. All agents then vote on these K designs. Each agent picks their top choice from the K.
+
+5. The design with the most votes in this final round is selected.
+
+Implementing this requires functions to sample menus, collect votes, tally them, and proceed to the final round.
+
+Now, coding all of this.
+
+First, the design space. Let's represent a design as a numpy array of floats. The design pool is a list of such arrays. However, for uniqueness, maybe we need to track each design's ID, but for simplicity, perhaps just track them as objects in a list, and when modified, new entries are added.
+
+But in the voting, when designs are sampled, they are selected from the pool. So the pool is a list, and each time a design is added, it's appended.
+
+Now, the agent class. Each agent has:
+
+- Parameters for utility function: ideal_point (a numpy array), sigma (float).
+
+- Parameters for selection function: temperature (float) for softmax.
+
+- Parameters for evolution function: mutation_strength (float), mutation_rate (float) (probability of mutating each dimension).
+
+- Parameters for decision function: None, since the decision is deterministic (add if utility increases).
+
+Wait, the decision function in the first stage is a function that takes the original and evolved design and decides whether to add the evolved one. So the decision is based on comparing the utilities. So no parameters here, unless there's a probabilistic element. But according to the user's description, the decision function is part of the agent's functions, so perhaps some agents might have different decision rules. But the user hasn't specified, so perhaps the decision function is the same for all agents. Or maybe agents have different thresholds. For simplicity, let's assume that the agent adds the evolved design if its utility is higher than the original's. So no parameters needed beyond their utility function.
+
+So each agent's decision function is: if utility(evolved) > utility(original), add to pool.
+
+Now, coding the functions.
+
+First, utility function. For an agent, given a design, compute utility.
+
+def utility_fn(agent, design):
+
+distance = np.linalg.norm(design - agent.ideal_point)
+
+return np.exp(-distance**2 / (2 * agent.sigma**2))
+
+But maybe the utility is just negative distance. Or another form. The exact form can be adjusted, but for the code, the agent's utility function is part of their parameters.
+
+Selection function: softmax over the utilities of all designs in the pool.
+
+def select_design(agent, design_pool):
+
+utilities = np.array([utility_fn(agent, d) for d in design_pool])
+
+max_utility = np.max(utilities)
+
+# Subtract max for numerical stability
+
+exp_utilities = np.exp((utilities - max_utility) / agent.temperature)
+
+probs = exp_utilities / np.sum(exp_utilities)
+
+selected_idx = np.random.choice(len(design_pool), p=probs)
+
+return design_pool[selected_idx]
+
+Evolution function: mutate the selected design.
+
+def evolve_design(agent, design):
+
+mutated = design.copy()
+
+for i in range(len(mutated)):
+
+if np.random.rand() < agent.mutation_rate:
+
+mutated[i] += np.random.normal(0, agent.mutation_strength)
+
+return mutated
+
+But wait, for each element in the design vector, with probability mutation_rate, add Gaussian noise with standard deviation mutation_strength.
+
+Decision function: compare utilities.
+
+def decide_to_add(agent, original_design, evolved_design):
+
+original_utility = utility_fn(agent, original_design)
+
+evolved_utility = utility_fn(agent, evolved_design)
+
+return evolved_utility > original_utility
+
+Then, in the first stage loop:
+
+for step in range(T):
+
+for agent in agents:
+
+# Select a design
+
+selected_design = select_design(agent, design_pool)
+
+# Evolve it
+
+evolved_design = evolve_design(agent, selected_design)
+
+# Decide to add
+
+if decide_to_add(agent, selected_design, evolved_design):
+
+design_pool.append(evolved_design)
+
+But wait, this would allow the same agent to add multiple designs in each step, and the design_pool grows as others are added. However, in each step, each agent acts once. So for T steps, each agent has T attempts to add a design.
+
+Now, for the second stage voting.
+
+Each agent votes M times on S designs.
+
+First, collect all designs in the pool. Then, for each agent, generate M random samples of S designs. For each sample, the agent votes for the design with the highest utility.
+
+votes = defaultdict(int)
+
+for agent in agents:
+
+for m in range(M):
+
+# Sample S designs without replacement
+
+menu = np.random.choice(design_pool, size=S, replace=False)
+
+# Agent selects the best in the menu
+
+best_design = max(menu, key=lambda d: utility_fn(agent, d))
+
+votes[tuple(best_design)] += 1  # Using tuple as hashable key
+
+Wait, but if the design_pool contains numpy arrays, they are not hashable. So perhaps each design is stored as a tuple in the pool. Or we need to use a unique identifier for each design. Alternatively, use indexes.
+
+Alternatively, represent each design as a tuple, so that it can be a key in the votes dictionary. So when adding to the design_pool, convert to a tuple.
+
+But in the first stage, when designs are mutated, they are numpy arrays. So perhaps the design pool is a list of numpy arrays. Then, when we need to hash them, convert to tuples.
+
+Alternatively, create a Design class with a unique ID, but that adds complexity. For simplicity, maybe store designs as tuples in the pool. Then, when evolving, they are converted to numpy arrays, mutated, then converted back to tuples.
+
+But for code purposes, perhaps:
+
+design_pool = [tuple(initial_designs)...]
+
+But when selecting, the agent gets a tuple, which is converted to a numpy array for utility computation. Wait, the utility function takes a design (tuple) and converts it to a numpy array?
+
+Alternatively, store designs as numpy arrays, but when voting, use their string representation as keys. Hmm, but that's messy.
+
+Alternatively, use the index in the design_pool list as the identifier. Then, votes can be tracked by index. But when new designs are added, their indexes are known. However, during the voting phase, the menus are sampled from the design_pool, and the indexes can be tracked.
+
+Wait, maybe that's better. Each design in the design_pool has an index. Then, when sampling, we select indexes, and the votes are tracked by index. That way, even if the same design is present multiple times (if duplicates are allowed in the pool), they are considered separate entries. But the problem says agents create designs by modifying existing ones, so duplicates might be rare. However, during the voting phase, when menus are sampled, if two identical designs are in the pool, they are treated as separate entries.
+
+But perhaps the design_pool is a list where each element is a design (numpy array), and each time a new design is added, it's appended. So each design is unique in the list (even if identical to another, they are separate entries). So for voting, when a menu is sampled, it's a list of indexes into the design_pool. Then, when the agent votes for a design in the menu, the index is recorded. Then, the votes are counted per index.
+
+This approach would handle duplicates correctly. So during the first stage:
+
+design_pool is a list of numpy arrays.
+
+In the voting stage:
+
+Each menu is a random selection of S indexes from the design_pool. Or, perhaps the menus are sampled by selecting S designs (possibly with replacement?) from the pool. Wait, the problem says "each agent gets M random samples of S designs from all the available designs". So each sample is a random subset of S designs. So without replacement? For example, if the pool has 100 designs and S=5, each menu is 5 distinct designs.
+
+But in code, when you sample from a list, you can use np.random.choice with replace=False.
+
+But in Python, the random.sample function can be used to sample without replacement. However, if the design_pool has fewer than S designs, this would be a problem. But in practice, the design_pool is built up during the first stage, so S should be chosen such that S is less than the size of the pool.
+
+So during the second stage:
+
+all_designs = design_pool
+
+for each agent:
+
+for m in 0..M-1:
+
+menu_indices = np.random.choice(len(all_designs), size=S, replace=False)
+
+menu = [all_designs[i] for i in menu_indices]
+
+# agent selects the best in menu
+
+best_index_in_menu = np.argmax([utility_fn(agent, d) for d in menu])
+
+# the actual index in design_pool is menu_indices[best_index_in_menu]
+
+votes[menu_indices[best_index_in_menu]] += 1
+
+Then, after all M menus, collect the votes. The top K designs with the highest votes are selected. Wait, but the votes are per design_pool index, so the top K indexes are those with the highest vote counts.
+
+Then, in the final vote, all agents vote on these K designs. Each agent selects their top choice among the K.
+
+finalists = [design_pool[i] for i in top_k_indices]
+
+final_votes = defaultdict(int)
+
+for agent in agents:
+
+utilities = [utility_fn(agent, d) for d in finalists]
+
+best_final = np.argmax(utilities)
+
+final_votes[best_final] += 1
+
+The final selected design is the one with the most votes in final_votes.
+
+Now, coding this requires careful indexing.
+
+Putting this all together, we can create a class-based structure.
+
+But the user asked for Python functions with parameters. So perhaps create functions with parameters passed in, rather than classes.
+
+Alternatively, use a dataclass or a dictionary to represent agents with their parameters.
+
+But to make it modular, perhaps define each function with agent parameters as inputs.
+
+So the selection function would take the agent's temperature and the design pool, etc.
+
+But in Python, functions can have parameters, but in this case, the agent's parameters are part of their state.
+
+Thus, using a class for agents would be better.
+
+Let me outline the code structure.
+
+First, the Agent class:
+
+class Agent:
+
+def __init__(self, ideal_point, sigma, temperature, mutation_rate, mutation_strength):
+
+self.ideal_point = np.array(ideal_point)
+
+self.sigma = sigma
+
+self.temperature = temperature
+
+self.mutation_rate = mutation_rate
+
+self.mutation_strength = mutation_strength
+
+def utility(self, design):
+
+# design is a numpy array
+
+distance = np.linalg.norm(design - self.ideal_point)
+
+return np.exp(-(distance**2) / (2 * self.sigma**2))
+
+def select_design(self, design_pool):
+
+utilities = [self.utility(d) for d in design_pool]
+
+# Softmax selection
+
+max_util = max(utilities)
+
+exp_utilities = np.exp((utilities - max_util) / self.temperature)
+
+probs = exp_utilities / np.sum(exp_utilities)
+
+selected_idx = np.random.choice(len(design_pool), p=probs)
+
+return design_pool[selected_idx]
+
+def evolve_design(self, design):
+
+mutated = design.copy()
+
+for i in range(len(mutated)):
+
+if np.random.rand() < self.mutation_rate:
+
+mutated[i] += np.random.normal(0, self.mutation_strength)
+
+return mutated
+
+def decide_to_add(self, original, evolved):
+
+return self.utility(evolved) > self.utility(original)
+
+Then, the first stage function:
+
+def first_stage(agents, initial_designs, T):
+
+design_pool = [np.array(d) for d in initial_designs]
+
+for _ in range(T):
+
+for agent in agents:
+
+selected = agent.select_design(design_pool)
+
+evolved = agent.evolve_design(selected)
+
+if agent.decide_to_add(selected, evolved):
+
+design_pool.append(evolved)
+
+return design_pool
+
+For the second stage:
+
+def second_stage(agents, design_pool, S, M, K):
+
+# First, collect all votes from M menus per agent
+
+vote_counts = defaultdict(int)
+
+n_designs = len(design_pool)
+
+for agent in agents:
+
+for _ in range(M):
+
+# Sample S distinct designs
+
+indices = np.random.choice(n_designs, size=S, replace=False)
+
+menu = [design_pool[i] for i in indices]
+
+# Find which design in the menu has the highest utility
+
+utilities = [agent.utility(d) for d in menu]
+
+best_in_menu = np.argmax(utilities)
+
+best_index = indices[best_in_menu]
+
+vote_counts[best_index] += 1
+
+# Get top K designs based on vote counts
+
+sorted_votes = sorted(vote_counts.items(), key=lambda x: -x[1])
+
+top_k_indices = [idx for idx, _ in sorted_votes[:K]]
+
+top_k_designs = [design_pool[idx] for idx in top_k_indices]
+
+# Final vote
+
+final_votes = defaultdict(int)
+
+for agent in agents:
+
+utilities = [agent.utility(d) for d in top_k_designs]
+
+best_final = np.argmax(utilities)
+
+final_votes[best_final] += 1
+
+# Find the winner
+
+winner_idx = max(final_votes, key=lambda k: final_votes[k])
+
+return top_k_designs[winner_idx]
+
+Now, to simulate the entire process:
+
+def simulate(N, T, S, M, K, initial_designs, agent_params):
+
+# Create agents with heterogenous parameters
+
+agents = [Agent(**params) for params in agent_params]
+
+# Run first stage
+
+design_pool = first_stage(agents, initial_designs, T)
+
+# Run second stage
+
+winner = second_stage(agents, design_pool, S, M, K)
+
+return winner
+
+But the agent_params must be a list of dictionaries, each containing the parameters for each agent (ideal_point, sigma, temperature, mutation_rate, mutation_strength).
+
+But generating these parameters for N agents with heterogeneity is needed. For example, each agent's ideal_point could be randomly generated in the design space, sigma varies, etc.
+
+But the user hasn't specified how to generate the agents, just that they are heterogenous. So when deploying the simulation, the user would need to create a list of agent parameters.
+
+For example, for a 2D design space:
+
+initial_designs = [[0.5, 0.5], [1.0, 1.0]]  # initial designs
+
+agent_params = []
+
+for _ in range(N):
+
+ideal_point = np.random.rand(2)  # 2D design space
+
+sigma = np.random.uniform(0.1, 1.0)
+
+temperature = np.random.uniform(0.5, 2.0)
+
+mutation_rate = np.random.uniform(0.1, 0.5)
+
+mutation_strength = np.random.uniform(0.01, 0.1)
+
+agent_params.append({
+
+'ideal_point': ideal_point,
+
+'sigma': sigma,
+
+'temperature': temperature,
+
+'mutation_rate': mutation_rate,
+
+'mutation_strength': mutation_strength
+
+})
+
+Then, call simulate with these parameters.
+
+This code should handle the two stages. Now, some edge cases to consider:
+
+- In the first stage, if all agents' mutations don't improve the design, the pool remains the same. But with T steps, each agent may add some designs.
+
+- In the voting stage, if the design_pool is empty, but the initial designs are there. So the code must handle that.
+
+Now, possible issues:
+
+1. The design_pool in the first stage is a list of numpy arrays. When appending evolved designs, they are added as new entries. So even if two designs are identical, they are separate entries. During voting, they are treated as separate, which might not be desired. However, the problem statement doesn't mention merging duplicates. So this is acceptable.
+
+2. The voting in the second stage is done using indexes, which refer to the positions in the design_pool list. So two identical designs at different positions are treated as different entries. But according to the model, each modification creates a new design, so duplicates are possible but treated separately.
+
+3. The evolution function: each element in the design is mutated independently with probability mutation_rate. For high mutation_rate and mutation_strength, the design can change a lot.
+
+4. The utility function is Gaussian-based, which is suitable for testing. But other utility functions can be implemented by changing the Agent's utility method.
+
+Potential improvements:
+
+- Allowing different utility functions per agent.
+
+- Using different selection, evolution, decision functions.
+
+But according to the problem statement, the functions are part of the model, so the provided code should have those functions parameterized.
+
+Now, testing this code with small examples.
+
+Test case:
+
+N=2 agents, T=1 step.
+
+Initial designs: [[0.0, 0.0], [1.0, 1.0]]
+
+Agents have different ideal points.
+
+After first stage, each agent selects a design, mutates it, and adds if better.
+
+Then in the second stage, with S=1, M=1, K=1.
+
+But this is a minimal case.
+
+Alternatively, run a simple simulation with print statements to see if the code works.
+
+But since this is a conceptual answer, the code should be correct syntactically and handle the parameters as described.
+
+In summary, the code defines the Agent class with necessary methods, simulates the two stages, and allows for heterogeneous agents. The functions are parameterized, and the design space is represented as numpy arrays. The key parameters for each agent are their ideal point, sigma for utility, temperature for selection, mutation rate and strength for evolution.
+

@@ -1,0 +1,11 @@
+#!/bin/bash
+
+#SBATCH -n 20
+#SBATCH --time=3:00:00
+#SBATCH --mem-per-cpu=20G
+#SBATCH --job-name=numAgents
+#SBATCH --output=numAgents.out
+#SBATCH --error=numAgents.err
+
+module load python
+python main_nums.py 100reps_10-10000as
